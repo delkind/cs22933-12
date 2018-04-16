@@ -1,0 +1,16 @@
+#-----------------------
+        # Part-of-Speech Tagging Evaluation
+        #-----------------------
+        #
+        # Model: 2
+        # Smoothing: y
+        # Test File: :isha.test.tagged
+        # Gold File: :./exps/isha/isha.gold
+        #
+        #-----------------------
+        # sent-num word-accuracy sent-accuracy
+        #-----------------------
+        # 1 0.82 0.00
+        #-----------------------
+        macro-avg 0.8182 0.0000
+        
