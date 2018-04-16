@@ -4,6 +4,11 @@ from tagger import util
 
 
 def tokenize(sentences):
+    """
+    Turn string representation for segments and tags into numeric one
+    :param sentences: raw sentences list
+    :return: segment mappings, tag mappings, tokenized sentences list
+    """
     tokenized_sentences = list()
 
     segments = {k: v for v, k in enumerate(list(set([segment for sentence in sentences for (segment, _) in sentence]))
@@ -23,9 +28,8 @@ def tokenize(sentences):
 def train(raw_sentences, order, smoothing=False):
     """
     Train the decoder on a given corpus
+    :param raw_sentences: sentences (non-tokenized, tuples of strings)
     :param smoothing: whether to smooth probabilities
-    :param sentences: tagged corpus
-    :param model: model (should contain tags, itags, segments)
     :param order: model order (0 - unigram, 1 - bigram, etc)
     :return: trained model
     All the probabilities are log probabilities as requested
@@ -62,6 +66,8 @@ def train(raw_sentences, order, smoothing=False):
         # we assume that the likelihood that any tag will generate unknown segment is the same as likelihood it will
         # generate a known segment with some exceptions (see below)
         lex[unknown_seg] = np.sum(lex, axis=0)
+
+        # special symbols never yield unknown segment
         lex[unknown_seg, start_tag] = 0
         lex[unknown_seg, end_tag] = 0
 
@@ -71,7 +77,7 @@ def train(raw_sentences, order, smoothing=False):
         # also H is not going to be discovered again
         lex[unknown_seg, itags['H']] = 0
 
-        # some parts of speech are also less to not probable to produce unknown segments
+        # some parts of speech are also less or not likely to yield unknown segments
         lex[unknown_seg, itags['REL']] = 0
         lex[unknown_seg, itags['HAM']] = 0
         lex[unknown_seg, itags['COM']] = 0
@@ -82,29 +88,33 @@ def train(raw_sentences, order, smoothing=False):
         lex[unknown_seg, itags['DT']] *= 0.01
         lex[unknown_seg, itags['IN']] *= 0.01
 
-        # slightly boost probability that the unknown segment is NNP or ZVL
-        lex[unknown_seg, itags['NNP']] *= 1.5
-        lex[unknown_seg, itags['NNP']] *= 1.5
-
-    ngrams = np.zeros((len(tags),) * (order + 1), "int")
+        # slightly boost probability that NNP or ZVL yield unknown segment
+        lex[unknown_seg, itags['NNP']] *= 2
+        lex[unknown_seg, itags['NNP']] *= 2
 
     lex[isegments[util.START_TAG], start_tag] = 1
     lex[isegments[util.END_TAG], end_tag] = 1
+
+    ngrams = np.zeros((len(tags),) * (order + 1), "int")
 
     for sentence in sentences:
         # extract tag sequence from the the sentence
         tag_sequence = [x for (_, x) in sentence]
         # amend tag sequence with the start and end symbols as appropriate
-        tag_sequence = [start_tag] * order + tag_sequence + [end_tag] * order
+        tag_sequence = [start_tag] * order + tag_sequence + [end_tag]
         # iterate over all the n-grams in the sentence and increase their respective count
         for ngram in zip(*[tag_sequence[i:] for i in range(order + 1)]):
             ngrams[ngram] += 1
-    ngrams = ngrams.reshape(pow(len(tags), order), len(tags))
+    ngrams = ngrams.reshape(-1, len(tags))
 
-    # we might smooth for unseen transitions, but this does not seem to give much gain
+    raw_gram = {order: ngrams}
+    for i in reversed(range(order)):
+        raw_gram[i] = raw_gram[i + 1].reshape(len(tags), -1, len(tags)).sum(axis=0)
 
-    gram = {order: count_to_log_prob(ngrams, 1),
-            order - 1: count_to_log_prob(ngrams.sum(axis=1), 0).reshape(-1, len(model['tags']))}
+    gram = {}
+
+    for i in raw_gram:
+        gram[i] = count_to_log_prob(raw_gram[i], 1)
 
     model['gram'] = gram
     model['lex'] = count_to_log_prob(lex, 0)
@@ -132,6 +142,7 @@ def count_to_log_prob(matrix, axis):
     # wherever sum is 0, each count is also 0, so we can safely assign anything we want to the sum (avoids div by zero)
     matrix_sum[matrix_sum == 0] = 1
     matrix = matrix / matrix_sum
+    # log(0) is undefined, so make it a really tiny number instead of 0
     matrix[matrix == 0] = util.EPSILON
     matrix = np.log(matrix)
     return matrix

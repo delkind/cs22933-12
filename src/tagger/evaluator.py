@@ -96,20 +96,20 @@ def _eval_report(gold_lines, predict_lines, model, smooth_str, test_file, gold_f
     print('macro-avg {all_seg_accuracy:.4f} {all_sent_accuracy:.4f}'.format(**vars()))
     return \
         '''#-----------------------
-        # Part-of-Speech Tagging Evaluation
-        #-----------------------
-        #
-        # Model: {model}
-        # Smoothing: {smooth_str}
-        # Test File: :{test_file}
-        # Gold File: :{gold_file}
-        #
-        #-----------------------
-        # sent-num word-accuracy sent-accuracy
-        #-----------------------
-        {by_sentence_lines}
-        #-----------------------
-        macro-avg {all_seg_accuracy:.4f} {all_sent_accuracy:.4f}
+# Part-of-Speech Tagging Evaluation
+#-----------------------
+#
+# Model: {model}
+# Smoothing: {smooth_str}
+# Test File: :{test_file}
+# Gold File: :{gold_file}
+#
+#-----------------------
+# sent-num word-accuracy sent-accuracy
+#-----------------------
+{by_sentence_lines}
+#-----------------------
+macro-avg {all_seg_accuracy:.4f} {all_sent_accuracy:.4f}
         '''.format(**vars())
 
 

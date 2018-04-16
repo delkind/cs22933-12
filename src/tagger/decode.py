@@ -143,10 +143,16 @@ def parse_lex_file(file_name):
     # now that we know all the tags and segments in the model we can create an array
     lex = np.full((len(segments), len(tags)), util.LOG_EPSILON, float)
 
+    smoothing = False
+
     # and populate it with probabilities
     for (seg, taglist) in lex_builder.items():
         for (tag, logprob) in taglist:
             lex[segments[seg], tag] = logprob
+            # can we determine whether smoothing was enabled? Yes, we can! If it's disabled, P(UNKNOWN_SEG | tag) is 0
+            # unless the tag is NNP.
+            if seg == util.UNKNOWN_SEG and tag != tags['NNP']:
+                smoothing = True
 
     return \
         {'lex': lex,
@@ -154,6 +160,7 @@ def parse_lex_file(file_name):
          'tags': {v: k for (k, v) in tags.items()},
          'isegments': segments,
          'itags': tags,
+         'smoothing': smoothing
          }
 
 
@@ -164,6 +171,7 @@ def parse_gram_file(file_name, model):
 
     gram = {}
 
+    tags = model['tags']
     with open(file_name) as f:
         curr_section = None
         for i, line in enumerate(f.read().splitlines()):
@@ -195,17 +203,28 @@ def parse_gram_file(file_name, model):
                 logprob = float(tokens[0])
                 # we keep the transition matrix per order in the dictionary
                 if order not in gram:
-                    gram[order] = np.full((pow(len(model['tags']), order - 1), len(model['tags'])), util.LOG_EPSILON,
+                    gram[order] = np.full((pow(len(tags), order - 1), len(tags)), util.LOG_EPSILON,
                                           float)
-                gram[order][util.tuple_to_index(ngram_tags[:-1], len(model['tags'])), ngram_tags[-1]] = logprob
+                gram[order][util.tuple_to_index(ngram_tags[:-1], len(tags)), ngram_tags[-1]] = logprob
 
-    real_order = max([key for key in gram.keys()])
-
-    if real_order > 2 and real_order-1 in gram:
-        for prev in range(pow(len(model['tags']), real_order - 1)):
-            for cur in range(len(model['tags'])):
+    if model['smoothing']:
+        # interpolate the transition probabilities using the lower order ones
+        real_order = max([key for key in gram.keys()])
+        for prev in range(pow(len(tags), real_order - 1)):
+            for cur in range(len(tags)):
                 if gram[real_order][prev, cur] <= util.LOG_EPSILON:
-                    gram[real_order][prev, cur] = gram[real_order - 1][prev % pow(len(model['tags']), real_order - 2), cur]
+                    total = 0
+                    prob = 0
+                    for i in reversed(range(1, real_order)):
+                        if i in gram:
+                            prob += math.exp(gram[i][prev % pow(len(tags), i - 1), cur])
+                            total += 1
+                    if prob > 0:
+                        # P = 0.9*P(current order)+sum(P(lower orders))/count(lower orders).
+                        # It should be lower than the probability of the order-grams so that the transition
+                        # of the real order fire with higher probability
+                        prob /= total * 5
+                        gram[real_order][prev, cur] = math.log(prob)
 
     model['gram'] = gram
 
