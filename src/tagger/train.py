@@ -59,12 +59,32 @@ def train(raw_sentences, order, smoothing=False):
     if not smoothing:
         lex[unknown_seg, itags['NNP']] = 1
     else:
-        # add one smoothing
-        all_combs = np.sum(lex > 0)
-        lex[lex > 0] += 1
-        lex[unknown_seg] = np.sum(lex, axis=0) + 1
+        # we assume that the likelihood that any tag will generate unknown segment is the same as likelihood it will
+        # generate a known segment with some exceptions (see below)
+        lex[unknown_seg] = np.sum(lex, axis=0)
         lex[unknown_seg, start_tag] = 0
         lex[unknown_seg, end_tag] = 0
+
+        # unlikely we will find new punctuation symbols if the corpus is big enough
+        lex[unknown_seg][[val for (key, val) in itags.items() if key.startswith('yy')]] = 0
+
+        # also H is not going to be discovered again
+        lex[unknown_seg, itags['H']] = 0
+
+        # some parts of speech are also less to not probable to produce unknown segments
+        lex[unknown_seg, itags['REL']] = 0
+        lex[unknown_seg, itags['HAM']] = 0
+        lex[unknown_seg, itags['COM']] = 0
+        lex[unknown_seg, itags['MOD']] *= 0.01
+        lex[unknown_seg, itags['QW']] *= 0.01
+        lex[unknown_seg, itags['AGR']] *= 0.01
+        lex[unknown_seg, itags['AUX']] *= 0.01
+        lex[unknown_seg, itags['DT']] *= 0.01
+        lex[unknown_seg, itags['IN']] *= 0.01
+
+        # slightly boost probability that the unknown segment is NNP or ZVL
+        lex[unknown_seg, itags['NNP']] *= 1.5
+        lex[unknown_seg, itags['NNP']] *= 1.5
 
     ngrams = np.zeros((len(tags),) * (order + 1), "int")
 
@@ -166,10 +186,6 @@ def emit_lex_file(file_name, model):
             for tag in tags:
                 f.write(util.SEPARATOR + model["tags"][tag] + util.SEPARATOR + fl_format(lex[segment, tag]))
             f.write("\n")
-
-        # f.write("<s> <s> 0.0\n")
-        # f.write("<e> <e> 0.0\n")
-        # f.write("<UNKNOWN> NNP 0.0\n")
 
 
 def fl_format(num):
