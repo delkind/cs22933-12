@@ -58,6 +58,15 @@ def train(raw_sentences, order, smoothing=False):
     if order == 0:
         lex[unknown_seg, itags['NNP']] = 1
         model['lex'] = count_to_log_prob(lex, 1)
+
+        # keep only the max prob, zero the rest  (so decode will ot have to sort each time)
+        WORDS, TAGS = model['lex'].shape
+        for w in range(WORDS):
+            index_of_max = model['lex'][w].argmax()
+            for t in range(TAGS):
+                if t!=index_of_max:
+                   model['lex'][w,t]= util.LOG_EPSILON
+
         return model
 
     if not smoothing:
