@@ -63,34 +63,17 @@ def train(raw_sentences, order, smoothing=False):
     if not smoothing:
         lex[unknown_seg, itags['NNP']] = 1
     else:
+        # tags that will never emit unknown
+        impossible = [util.START_TAG, util.END_TAG, 'REL', 'HAM', 'COM', 'H'] + \
+                     [tag for tag in itags if tag.startswith('yy')]
+        # tags that are very unlikely to emit unknown
+        lower_likelihood = ['MOD', 'QW', 'AGR', 'AUX', 'DT', 'IN']
+
         # we assume that the likelihood that any tag will generate unknown segment is the same as likelihood it will
-        # generate a known segment with some exceptions (see below)
-        lex[unknown_seg] = np.sum(lex, axis=0)
-
-        # special symbols never yield unknown segment
-        lex[unknown_seg, start_tag] = 0
-        lex[unknown_seg, end_tag] = 0
-
-        # unlikely we will find new punctuation symbols if the corpus is big enough
-        lex[unknown_seg][[val for (key, val) in itags.items() if key.startswith('yy')]] = 0
-
-        # also H is not going to be discovered again
-        lex[unknown_seg, itags['H']] = 0
-
-        # some parts of speech are also less or not likely to yield unknown segments
-        lex[unknown_seg, itags['REL']] = 0
-        lex[unknown_seg, itags['HAM']] = 0
-        lex[unknown_seg, itags['COM']] = 0
-        lex[unknown_seg, itags['MOD']] *= 0.01
-        lex[unknown_seg, itags['QW']] *= 0.01
-        lex[unknown_seg, itags['AGR']] *= 0.01
-        lex[unknown_seg, itags['AUX']] *= 0.01
-        lex[unknown_seg, itags['DT']] *= 0.01
-        lex[unknown_seg, itags['IN']] *= 0.01
-
-        # slightly boost probability that NNP or ZVL yield unknown segment
-        lex[unknown_seg, itags['NNP']] *= 2
-        lex[unknown_seg, itags['NNP']] *= 2
+        # generate a known segment with some exceptions (see above)
+        lex[unknown_seg] = lex.sum(axis=0)
+        lex[unknown_seg, [itags[tag] for tag in impossible]] = 0
+        lex[unknown_seg, [itags[tag] for tag in lower_likelihood]] *= 0.01
 
     lex[isegments[util.START_TAG], start_tag] = 1
     lex[isegments[util.END_TAG], end_tag] = 1
@@ -107,14 +90,38 @@ def train(raw_sentences, order, smoothing=False):
             ngrams[ngram] += 1
     ngrams = ngrams.reshape(-1, len(tags))
 
+    # fill the previous order ngrams matrices
     raw_gram = {order: ngrams}
     for i in reversed(range(order)):
         raw_gram[i] = raw_gram[i + 1].reshape(len(tags), -1, len(tags)).sum(axis=0)
 
-    gram = {}
+    # calculate their probabilities
+    gram = {k: count_to_prob(v, 1) for (k, v) in raw_gram.items()}
 
-    for i in raw_gram:
-        gram[i] = count_to_log_prob(raw_gram[i], 1)
+    if smoothing:
+        # perform deleted interpolation
+        lambdas = np.zeros(order + 1)
+
+        # calculate lambdas
+        for s in range(raw_gram[order].shape[0]):
+            for t in range(raw_gram[order].shape[1]):
+                cases = np.zeros(order + 1)
+                for i in range(order + 1):
+                    if np.sum(raw_gram[i][s % pow(len(tags), i)]) != 1:
+                        cases[i] = (raw_gram[i][s % pow(len(tags), i), t] - 1) / (np.sum(raw_gram[i][s % pow(len(tags), i)]) - 1)
+                lambdas[np.argmax(cases)] += raw_gram[order][s, t]
+
+        lambdas = lambdas / np.sum(lambdas)
+
+        # smooth the transition probabilities
+        for s in range(gram[order].shape[0]):
+            for t in range(gram[order].shape[1]):
+                prob = 0
+                for i in range(order + 1):
+                    prob += gram[i][s % pow(len(tags), i), t] * lambdas[i]
+                gram[order][s, t] = prob
+
+    gram = {k: prob_to_log_prob(v) for (k, v) in gram.items()}
 
     model['gram'] = gram
     model['lex'] = count_to_log_prob(lex, 0)
@@ -131,6 +138,32 @@ def argnonzero(array):
     return np.transpose(np.nonzero(array > util.LOG_EPSILON))
 
 
+def count_to_prob(matrix, axis):
+    """
+    Turn counts into probabilities based on maximum likelihood
+    :param matrix: counts matrix
+    :param axis: axis to normalize by
+    :return: probabilities matrix of the same dimensions
+    """
+    matrix_sum = matrix.sum(axis=axis, keepdims=True)
+    # wherever sum is 0, each count is also 0, so we can safely assign anything we want to the sum (avoids div by zero)
+    matrix_sum[matrix_sum == 0] = 1
+    matrix = matrix / matrix_sum
+    return matrix
+
+
+def prob_to_log_prob(matrix):
+    """
+    Convert probabilities to log probabilities
+    :param matrix: probabilities matrix
+    :return: converted probabilities matrix of the same dimensions
+    """
+    # log(0) is undefined, so make it a really tiny number instead of 0
+    matrix[matrix == 0] = util.EPSILON
+    matrix = np.log(matrix)
+    return matrix
+
+
 def count_to_log_prob(matrix, axis):
     """
     Turn counts into log probabilities (zero counts assigned EPSILON to avoid division by zero)
@@ -138,14 +171,7 @@ def count_to_log_prob(matrix, axis):
     :param axis: axis to normalize by
     :return: log probabilities matrix of the same dimensions
     """
-    matrix_sum = matrix.sum(axis=axis, keepdims=True)
-    # wherever sum is 0, each count is also 0, so we can safely assign anything we want to the sum (avoids div by zero)
-    matrix_sum[matrix_sum == 0] = 1
-    matrix = matrix / matrix_sum
-    # log(0) is undefined, so make it a really tiny number instead of 0
-    matrix[matrix == 0] = util.EPSILON
-    matrix = np.log(matrix)
-    return matrix
+    return prob_to_log_prob(count_to_prob(matrix, axis))
 
 
 def history_to_str(history, corpus_tags, separator=util.SEPARATOR):

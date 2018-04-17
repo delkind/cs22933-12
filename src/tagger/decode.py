@@ -3,11 +3,16 @@ import math
 from tagger import util
 
 
-def tokenize(sentence, model):
+def tokenize(sentences, model):
+    """
+    Turn string representation for segments into numeric one
+    :param sentences: raw sentences list
+    :return: tokenized sentences list
+    """
     isegments = model['isegments']
 
     tokenized_sentence = list()
-    for segment in sentence:
+    for segment in sentences:
         if segment in isegments:
             tokenized_sentence.append(isegments[segment])
         else:
@@ -17,6 +22,12 @@ def tokenize(sentence, model):
 
 
 def emit_tagged_file(file_path, model, sentences):
+    """
+    Emit file with tagged corpus
+    :param file_path: output file path
+    :param model: trained model
+    :param sentences: untagged sentences
+    """
     with open(file_path, "w") as f:
         for sentence in sentences:
             for (segment, tag) in sentence:
@@ -38,6 +49,13 @@ def majority_vote_decoder(model, sentence):
 
 
 def viterbi_decoder(model, order, sentence):
+    """
+    Vitebri decoder
+    :param model: trained model
+    :param order: order (bigrams, trigrams etc)
+    :param sentence: untagged sentence
+    :return: tagged sentence
+    """
     ngrams = model['gram'][order + 1]
     base = len(model['tags'])
     order = int(math.floor(math.log(ngrams.shape[0], base) + 0.5))
@@ -80,15 +98,24 @@ def viterbi_decoder(model, order, sentence):
     return reversed(tag_sequence)
 
 
-def decode(sentences, model, order, smoothing=False, display_progress=True):
+def decode(sentences, model, order, display_progress=True):
+    """
+    Generic decode wrapper
+    :param display_progress: whether to display progress bar
+    :param model: trained model
+    :param order: order (bigrams, trigrams etc)
+    :param sentences: untagged sentences
+    :return: tagged sentence
+    """
     tagged_sentences = []
     progress = 0
 
     start = util.current_time_millis()
 
     for sentence in sentences:
-        util.print_progress_bar(progress, len(sentences),
-                                suffix="{} elapsed".format((util.current_time_millis() - start) // 1000))
+        if display_progress:
+            util.print_progress_bar(progress, len(sentences),
+                                    suffix="{} elapsed".format((util.current_time_millis() - start) // 1000))
         progress += 1
         if order == 0:
             tag_sequence = majority_vote_decoder(model, tokenize(sentence, model))
@@ -102,6 +129,11 @@ def decode(sentences, model, order, smoothing=False, display_progress=True):
 
 
 def parse_lex_file(file_name):
+    """
+    Parse lex parameters file
+    :param file_name:
+    :return: partial model (without grams)
+    """
     lex_builder = {}
     segments = {}
     tags = {}
@@ -165,6 +197,13 @@ def parse_lex_file(file_name):
 
 
 def parse_gram_file(file_name, model):
+    """
+    Parse transition probabilities (.gram) file
+    :param file_name:
+    :param model: model prepared by parse_lex_file
+    :return: loaded pre-trained model
+    """
+
     # TODO: Replace with regex matching
     # sections of the file, will be used for state transitions
     sections = set(['data'] + ['{}-grams'.format(i) for i in range(1, 6)])
@@ -232,6 +271,12 @@ def parse_gram_file(file_name, model):
 
 
 def parse_params(lex_file_name, gram_file_name):
+    """
+    Parse model parameters
+    :param lex_file_name: emission probabilities file name (.lex)
+    :param gram_file_name: transition probabilities file name (.gram)
+    :return: loaded pre-trained model
+    """
     model = parse_lex_file(lex_file_name)
     if gram_file_name is not None:
         model = parse_gram_file(gram_file_name, model)

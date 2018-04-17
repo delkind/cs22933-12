@@ -155,12 +155,3 @@ def eval(tagged_file, gold_file, model, smooth_str, out_file=None):
         confusion_matrix_on_files(tagged_file, gold_file)
     else:
         print(result)
-
-
-if __name__ == "__main__":
-    # example test
-    # eval('heb-pos.gold','heb-pos.gold_err',1,'n','heb-pos.train.1.n.eval')
-    # import doctest
-    # doctest.testmod()
-    print(confusion_matrix(['NNP', 'NNP', 'NNP', 'VB'], \
-                           ['NNP', 'NNP', 'VB', 'NNP']))
