@@ -73,18 +73,35 @@ def train(raw_sentences, order, smoothing=False):
         lex[unknown_seg, itags['NNP']] = 1
     else:
         # tags that will never emit unknown
-        impossible = [util.START_TAG, util.END_TAG, 'REL', 'HAM', 'COM', 'H'] + \
-                     [tag for tag in itags if tag.startswith('yy')]
+        impossible = ['REL', 'HAM', 'COM', 'H'] + [tag for tag in itags if tag.startswith('yy')]
+        impossible = [itags[tag] for tag in impossible]
         # tags that are very unlikely to emit unknown
         lower_likelihood = ['MOD', 'QW', 'AGR', 'AUX', 'DT', 'IN']
+        lower_likelihood = [itags[tag] for tag in lower_likelihood]
 
-        # we assume that the likelihood that any tag will generate unknown segment is the same as likelihood it will
-        # generate a known segment with some exceptions (see above)
-        lex[unknown_seg] = lex.sum(axis=0)
-        lex[unknown_seg, [itags[tag] for tag in impossible]] = 0
-        lex[unknown_seg, [itags[tag] for tag in lower_likelihood]] *= 0.01
+        # smooth using add-Delta (Laplace)
+        # Delta is a hyper-parameter and it depends on the corpus size. In our case, Omega is {KNOWN, UNKNOWN}.
+        # If the corpus is large, we can assume the delta is small even for open tags, however in our case where
+        # we are very likely to hit many unknown words for open tags such as NN or VB, we need to allocate a substantial
+        # share of probability for the UNKNOWN. In practice, very big values of d tend to give good results for open
+        # tags, but in order to avoid overfitting, we restrict the values of d to be a factor of
+        # |KNOWN|/|count(unique_seg | tag)|
+        factor = 0.5
+        unique_segments_per_tag = ((lex > 0)[:, :-2]).sum(axis=0)
+        deltas_per_tag = (lex[:, :-2].sum(axis=0) / unique_segments_per_tag) * factor
+        # set delta for almost-closed tags to 1
+        deltas_per_tag[lower_likelihood] = 1
+        # we should not smooth the tags that will never emit unknown segments
+        deltas_per_tag[impossible] = 0
+        # NNP is slightly more likely to produce uknown, so boost delta for it
+        deltas_per_tag[itags['NNP']] *= 3
+        # adjust known counts - only those that are > 0
+        lex[:, :-2] += (lex > 0)[:, :-2] * deltas_per_tag
+        lex[unknown_seg, :-2] = deltas_per_tag * unique_segments_per_tag
 
+    # end tag emits end_tag, always
     lex[isegments[util.START_TAG], start_tag] = 1
+    # start tag emits start_tag, always
     lex[isegments[util.END_TAG], end_tag] = 1
 
     ngrams = np.zeros((len(tags),) * (order + 1), "int")
