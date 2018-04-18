@@ -31,10 +31,10 @@ def explore(file_name):
         # unique tag set per segment
         seg_tags[seg][tag] += 1
 
-    print('unigram segments instancecount=', sum(seg_dict.itervalues()))
+    print('unigram segments instancecount=', sum(seg_dict.values()))
     print('unigram segments unique types=', len(seg_dict))
     # value:{NN:3, VB:2} --map a dict to it's sum --> 5
-    print('seg-tag pairs instance count=', sum(map(lambda dic: sum(dic.itervalues()), seg_tags.values())))
+    print('seg-tag pairs instance count=', sum(map(lambda dic: sum(dic.values()), seg_tags.values())))
     # value:{NN:3, VB:2} --map a dict to number of keys --> 5
     segtag_pairs_uniques = sum((map(len, seg_tags.values())))
     print('seg-tag pairs unique count=', segtag_pairs_uniques)
